@@ -7,6 +7,7 @@ import typer
 from . import __version__
 from .config import write_default_config, load_config, basic_validate
 from .checks.http_check import run_http_check, HttpCheckResult
+from .checks.ssl_check import run_ssl_check, SslCheckResult
 
 app = typer.Typer(no_args_is_help=True, add_completion=False, help="QuickShield CE CLI")
 
@@ -60,7 +61,7 @@ def validate(
 
     typer.secho("Config looks good ✅", fg="green")
 
-@app.command(help="Run HTTP uptime checks for all sites in the config.")
+@app.command(help="Run HTTP and SSL checks for all sites (or one).")
 def check(
     path: Path = typer.Option(Path("quickshield.yml"), "--path", "-p", help="Path to config file."),
     outdir: Path = typer.Option(Path("output"), "--outdir", "-o", help="Directory for results."),
@@ -94,18 +95,40 @@ def check(
     ts = time.strftime("%Y%m%d-%H%M%S")
     outfile = outdir / f"checks-{ts}.json"
 
-    results: List[HttpCheckResult] = []
+    results: List[Dict[str, Any]] = []
     for s in sites:
         name = str(s.get("name"))
         url = str(s.get("url"))
         expect_keyword = s.get("expect_keyword") or None
-        typer.echo(f"→ Checking {name} ({url}) ...")
-        res = run_http_check(name=name, url=url, expect_keyword=expect_keyword)
-        results.append(res)
-        status = "OK" if res.ok else "FAIL"
-        typer.secho(f"   {status} | status={res.status_code} latency={res.latency_ms}ms"
-                    + (f" error={res.error}" if res.error else ""), fg=("green" if res.ok else "red"))
+
+        # --- HTTP ---
+        typer.echo(f"→ HTTP: {name} ({url})")
+        http_res: HttpCheckResult = run_http_check(name=name, url=url, expect_keyword=expect_keyword)
+        typer.secho(
+            f"   {'OK' if http_res.ok else 'FAIL'} | status={http_res.status_code} latency={http_res.latency_ms}ms"
+            + (f" error={http_res.error}" if http_res.error else ""),
+            fg=("green" if http_res.ok else "red"),
+        )
+
+        # --- SSL ---
+        # Extract host from URL for the SSL TCP connection
+        host = url.replace("https://", "").replace("http://", "").split("/")[0]
+        typer.echo(f"→ SSL:  {name} ({host}:443)")
+        ssl_res: SslCheckResult = run_ssl_check(name=name, host=host, port=443)
+        ssl_status = "OK" if ssl_res.ok else "FAIL"
+        extra = f" exp={ssl_res.days_to_expiry}d" if ssl_res.days_to_expiry is not None else ""
+        typer.secho(
+            f"   {ssl_status} |{extra}" + (f" error={ssl_res.error}" if ssl_res.error else ""),
+            fg=("green" if ssl_res.ok else "red"),
+        )
+
+        results.append({
+            "name": name,
+            "url": url,
+            "http": http_res.to_dict(),
+            "ssl": ssl_res.to_dict(),
+        })
 
     with outfile.open("w", encoding="utf-8") as f:
-        json.dump([r.to_dict() for r in results], f, indent=2)
+        json.dump(results, f, indent=2)
     typer.secho(f"Saved results → {outfile}", fg="cyan")
