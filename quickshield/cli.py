@@ -1,6 +1,7 @@
 from __future__ import annotations
 from pathlib import Path
 from typing import Optional, List, Dict, Any
+from .checks.dns_check import run_dns_check, DnsCheckResult
 import json
 import time
 import typer
@@ -141,12 +142,24 @@ def check(
             fg=("green" if hdr_res.ok else "red"),
         )
 
+        # DNS
+        typer.echo(f"→ DNS:      {name} ({host})")
+        dns_res: DnsCheckResult = run_dns_check(name=name, host=host)
+        typer.secho(
+            f"   {'OK' if dns_res.ok else 'FAIL'} | A={len(dns_res.records.get('A', []))} "
+            f"AAAA={len(dns_res.records.get('AAAA', []))} "
+            f"CNAME={len(dns_res.records.get('CNAME', []))} "
+            f"MX={len(dns_res.records.get('MX', []))}",
+            fg=("green" if dns_res.ok else "red"),
+        )
+
         results.append({
             "name": name,
             "url": url,
             "http": http_res.to_dict(),
             "ssl": ssl_res.to_dict(),
             "headers": hdr_res.to_dict(),
+            "dns": dns_res.to_dict(),
         })
 
     with outfile.open("w", encoding="utf-8") as f:
