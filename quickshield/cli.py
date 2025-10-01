@@ -4,11 +4,14 @@ from typing import Optional, List, Dict, Any
 import json
 import time
 import typer
+
 from . import __version__
 from .config import write_default_config, load_config, basic_validate
 from .checks.http_check import run_http_check, HttpCheckResult
 from .checks.ssl_check import run_ssl_check, SslCheckResult
+from .checks.headers_check import run_headers_check, HeadersCheckResult
 
+# Root Typer app
 app = typer.Typer(no_args_is_help=True, add_completion=False, help="QuickShield CE CLI")
 
 @app.callback(invoke_without_command=True)
@@ -59,9 +62,13 @@ def validate(
             typer.echo(f" - {err}")
         raise typer.Exit(code=1)
 
+    # QoL: show which config + sites we validated
+    typer.secho(f"Using config: {path.resolve()}", fg="cyan")
+    typer.echo("Sites: " + ", ".join(str(s.get("name")) for s in cfg["sites"]))
+
     typer.secho("Config looks good ✅", fg="green")
 
-@app.command(help="Run HTTP and SSL checks for all sites (or one).")
+@app.command(help="Run HTTP, SSL, and Security Headers checks for all sites (or one).")
 def check(
     path: Path = typer.Option(Path("quickshield.yml"), "--path", "-p", help="Path to config file."),
     outdir: Path = typer.Option(Path("output"), "--outdir", "-o", help="Directory for results."),
@@ -95,14 +102,18 @@ def check(
     ts = time.strftime("%Y%m%d-%H%M%S")
     outfile = outdir / f"checks-{ts}.json"
 
+    # QoL: show which config + sites we're using right now
+    typer.secho(f"Using config: {path.resolve()}", fg="cyan")
+    typer.echo("Sites: " + ", ".join(str(s.get("name")) for s in sites))
+
     results: List[Dict[str, Any]] = []
     for s in sites:
         name = str(s.get("name"))
         url = str(s.get("url"))
         expect_keyword = s.get("expect_keyword") or None
 
-        # --- HTTP ---
-        typer.echo(f"→ HTTP: {name} ({url})")
+        # HTTP
+        typer.echo(f"→ HTTP:     {name} ({url})")
         http_res: HttpCheckResult = run_http_check(name=name, url=url, expect_keyword=expect_keyword)
         typer.secho(
             f"   {'OK' if http_res.ok else 'FAIL'} | status={http_res.status_code} latency={http_res.latency_ms}ms"
@@ -110,16 +121,24 @@ def check(
             fg=("green" if http_res.ok else "red"),
         )
 
-        # --- SSL ---
-        # Extract host from URL for the SSL TCP connection
+        # SSL
         host = url.replace("https://", "").replace("http://", "").split("/")[0]
-        typer.echo(f"→ SSL:  {name} ({host}:443)")
+        typer.echo(f"→ SSL:      {name} ({host}:443)")
         ssl_res: SslCheckResult = run_ssl_check(name=name, host=host, port=443)
-        ssl_status = "OK" if ssl_res.ok else "FAIL"
-        extra = f" exp={ssl_res.days_to_expiry}d" if ssl_res.days_to_expiry is not None else ""
         typer.secho(
-            f"   {ssl_status} |{extra}" + (f" error={ssl_res.error}" if ssl_res.error else ""),
+            f"   {'OK' if ssl_res.ok else 'FAIL'} |"
+            + (f" exp={ssl_res.days_to_expiry}d" if ssl_res.days_to_expiry is not None else "")
+            + (f" error={ssl_res.error}" if ssl_res.error else ""),
             fg=("green" if ssl_res.ok else "red"),
+        )
+
+        # HEADERS
+        typer.echo(f"→ HEADERS:  {name} ({url})")
+        hdr_res: HeadersCheckResult = run_headers_check(name=name, url=url)
+        typer.secho(
+            f"   grade={hdr_res.grade} "
+            + ("" if not hdr_res.issues else f"| issues={len(hdr_res.issues)}"),
+            fg=("green" if hdr_res.ok else "red"),
         )
 
         results.append({
@@ -127,6 +146,7 @@ def check(
             "url": url,
             "http": http_res.to_dict(),
             "ssl": ssl_res.to_dict(),
+            "headers": hdr_res.to_dict(),
         })
 
     with outfile.open("w", encoding="utf-8") as f:
