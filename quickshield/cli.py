@@ -2,6 +2,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from .checks.dns_check import run_dns_check, DnsCheckResult
+from .reporting.csv_report import write_csv
 import json
 import time
 import typer
@@ -74,7 +75,14 @@ def check(
     path: Path = typer.Option(Path("quickshield.yml"), "--path", "-p", help="Path to config file."),
     outdir: Path = typer.Option(Path("output"), "--outdir", "-o", help="Directory for results."),
     site: Optional[str] = typer.Option(None, "--site", "-s", help="Only check a specific site by name."),
+    format: str = typer.Option("json", "--format", "-f", help="Report format: json, csv, or both",
+                               case_sensitive=False),
 ):
+    format = format.lower()
+    if format not in {"json", "csv", "both"}:
+        typer.secho("Invalid --format. Use: json, csv, or both.", fg="red")
+        raise typer.Exit(code=2)
+
     if not path.exists():
         typer.secho(f"Config not found: {path}", fg="red")
         raise typer.Exit(code=1)
@@ -101,7 +109,8 @@ def check(
 
     outdir.mkdir(parents=True, exist_ok=True)
     ts = time.strftime("%Y%m%d-%H%M%S")
-    outfile = outdir / f"checks-{ts}.json"
+    json_outfile = outdir / f"checks-{ts}.json"
+    csv_outfile = outdir / f"checks-{ts}.csv"
 
     # QoL: show which config + sites we're using right now
     typer.secho(f"Using config: {path.resolve()}", fg="cyan")
@@ -143,10 +152,11 @@ def check(
         )
 
         # DNS
-        typer.echo(f"→ DNS:      {name} ({host})")
-        dns_res: DnsCheckResult = run_dns_check(name=name, host=host)
+        from .checks.dns_check import run_dns_check  # lazy import to avoid circulars
+        dns_res = run_dns_check(name=name, host=host)
         typer.secho(
-            f"   {'OK' if dns_res.ok else 'FAIL'} | A={len(dns_res.records.get('A', []))} "
+            f"→ DNS:      {'OK' if dns_res.ok else 'FAIL'} | "
+            f"A={len(dns_res.records.get('A', []))} "
             f"AAAA={len(dns_res.records.get('AAAA', []))} "
             f"CNAME={len(dns_res.records.get('CNAME', []))} "
             f"MX={len(dns_res.records.get('MX', []))}",
@@ -162,6 +172,14 @@ def check(
             "dns": dns_res.to_dict(),
         })
 
-    with outfile.open("w", encoding="utf-8") as f:
-        json.dump(results, f, indent=2)
-    typer.secho(f"Saved results → {outfile}", fg="cyan")
+    saved = []
+    if format in {"json", "both"}:
+        with json_outfile.open("w", encoding="utf-8") as f:
+            json.dump(results, f, indent=2)
+        saved.append(str(json_outfile))
+    if format in {"csv", "both"}:
+        write_csv(results, csv_outfile)
+        saved.append(str(csv_outfile))
+
+    for path_str in saved:
+        typer.secho(f"Saved → {path_str}", fg="cyan")
