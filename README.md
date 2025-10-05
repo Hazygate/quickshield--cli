@@ -25,18 +25,21 @@ It runs checks for **uptime**, **SSL expiry**, **security headers**, and **DNS s
 ## 🚀 Install
 
 ### Option A — pipx (recommended; global & isolated)
-```powershell
+powershell
 py -m pip install --user pipx
 py -m pipx ensurepath
 # restart PowerShell if needed
 pipx install .
-Option B — Virtual environment (developer workflow)
+### Option B — Virtual environment (developer workflow)
 powershell
 Copy code
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -e .
-📖 Quickstart
+
+---
+
+### 📖 Quickstart
 powershell
 Copy code
 quickshield init          # creates quickshield.yml in the current folder
@@ -44,7 +47,7 @@ quickshield validate
 quickshield check --format both
 Outputs go to ./output/checks-<timestamp>.json and .csv.
 
-Run specific checks:
+## Run specific checks:
 
 powershell
 Copy code
@@ -56,7 +59,7 @@ Copy code
 quickshield schedule print --preset 12h --only http --format csv
 Presets: 30m, 6h, 12h, 24h.
 
-🛠️ Editing the Config (quickshield.yml)
+## 🛠️ Editing the Config (quickshield.yml)
 The file is plain YAML. Open it with Notepad (or any editor):
 
 powershell
@@ -125,7 +128,9 @@ Copy code
 expect_keyword: "Maddog Method"
 Using Maddogmethod will fail (different spacing).
 
-🔁 Scheduling (optional)
+---
+
+## 🔁 Scheduling (optional)
 We suggest every 12–24 hours for all checks, and 30 minutes for uptime-only (--only http) if critical.
 
 Examples:
@@ -141,10 +146,13 @@ Pro: HTML/PDF reports, email/Slack alerts, binaries (no Python), local dashboard
 
 Agency: Multi-client, branding, advanced scheduling
 
-📜 License
+
+## 📜 License
 MIT License.
 
-🐞 Troubleshooting
+---
+
+## 🐞 Troubleshooting
 “Keyword not found”: Check exact spelling/casing in HTML source. Set expect_keyword: null to disable.
 
 Windows paths: Quote them if they contain spaces:
